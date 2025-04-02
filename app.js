@@ -15,6 +15,8 @@ app.use(
         target: TARGET_URL,
         changeOrigin: true,
         onProxyReq: (proxyReq, req, res) => {
+            proxyReq.method = req.method; // Forward the original request method
+
             if (req.body) {
                 const bodyData = JSON.stringify(req.body);
                 proxyReq.setHeader("Content-Type", "application/json");
