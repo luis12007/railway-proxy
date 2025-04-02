@@ -1,31 +1,33 @@
-const express = require("express");
-const { createProxyMiddleware } = require("http-proxy-middleware");
-const cors = require("cors");
-
+const express = require('express');
+const { createProxyMiddleware } = require('http-proxy-middleware');
 const app = express();
-const TARGET_URL = "http://3.137.223.39:3303";
-
-app.use(express.json()); // Parse JSON body
-app.use(cors()); // Enable CORS
-
-// Proxy all requests as POST to the target server
-app.use(
-    "/",
-    createProxyMiddleware({
-        target: TARGET_URL,
-        changeOrigin: true,
-        onProxyReq: (proxyReq, req, res) => {
-            proxyReq.method = "POST"; // Force all requests to be POST
-
-            if (req.body) {
-                const bodyData = JSON.stringify(req.body);
-                proxyReq.setHeader("Content-Type", "application/json");
-                proxyReq.write(bodyData);
-                proxyReq.end();
-            }
-        },
-    })
-);
-
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Proxy running on port ${PORT}`));
+
+// Log all incoming requests
+app.use((req, res, next) => {
+    console.log(`Received request: ${req.method} ${req.url}`);
+    console.log('Headers:', req.headers);
+    next();
+});
+
+// Create proxy middleware
+const proxyMiddleware = createProxyMiddleware({
+    target: 'http://3.137.223.39:3303',
+    changeOrigin: true,
+    pathRewrite: { '^/': '/' }, // Optional: keep paths as-is
+    onProxyReq: (proxyReq, req, res) => {
+        // Forward all headers from original request
+        // (Authentication headers, content type, etc. will be preserved)
+        console.log(`Proxying request to: ${proxyReq.path}`);
+    },
+    onProxyRes: (proxyRes, req, res) => {
+        console.log(`Received response with status: ${proxyRes.statusCode}`);
+    }
+});
+
+// Apply the proxy middleware to all routes
+app.use('/', proxyMiddleware);
+
+app.listen(PORT, () => {
+    console.log(`Proxy server running on port ${PORT}`);
+});
