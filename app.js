@@ -1,65 +1,80 @@
 const express = require('express');
-const { createProxyMiddleware } = require('http-proxy-middleware');
+const axios = require('axios');
+const bodyParser = require('body-parser');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Log middleware
+// Parse various content types
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.text());
+app.use(bodyParser.raw());
+
+// Log all requests
 app.use((req, res, next) => {
-    console.log(`Received request: ${req.method} ${req.url}`);
+    console.log(`${req.method} ${req.url}`);
     console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('Body:', JSON.stringify(req.body, null, 2));
     next();
 });
 
-// Middleware to handle authentication endpoints specifically
-app.use('/auth/login', (req, res, next) => {
-    // Force POST method for authentication endpoints
-    if (req.method === 'GET' && req.headers['content-type'] === 'application/json') {
-        console.log('Changing method from GET to POST for auth endpoint');
-        req.method = 'POST';
-    }
-    next();
-});
+// Handle all requests
+app.all('*', async(req, res) => {
+    try {
+        // Build target URL
+        const targetUrl = `http://3.137.223.39:3303${req.url}`;
+        console.log(`Forwarding to: ${targetUrl}`);
 
-// Configure the proxy
-const apiProxy = createProxyMiddleware({
-    target: 'http://3.137.223.39:3303',
-    changeOrigin: true,
-    pathRewrite: { '^/': '/' },
-    secure: false,
-    onProxyReq: (proxyReq, req, res) => {
-        // For POST/PUT/PATCH requests with JSON bodies
-        if (['POST', 'PUT', 'PATCH'].includes(req.method) &&
-            req.body &&
-            Object.keys(req.body).length > 0) {
+        // Configure the request
+        const config = {
+            method: req.method,
+            url: targetUrl,
+            headers: {
+                ...req.headers,
+                host: '3.137.223.39:3303'
+            },
+            data: req.body,
+            validateStatus: () => true // Accept all status codes
+        };
 
-            const bodyData = JSON.stringify(req.body);
-            // Update content-length
-            proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
-            proxyReq.setHeader('Content-Type', 'application/json');
+        // Log what we're sending
+        console.log('Sending request with config:', JSON.stringify({
+            method: config.method,
+            url: config.url,
+            headers: config.headers,
+            data: config.data
+        }, null, 2));
 
-            // Write body data to the proxy request
-            proxyReq.write(bodyData);
+        // Forward the request
+        const response = await axios(config);
+
+        // Log the response
+        console.log(`Response status: ${response.status}`);
+        console.log(`Response headers: ${JSON.stringify(response.headers, null, 2)}`);
+
+        // Forward response back to client
+        res.status(response.status);
+
+        // Forward response headers
+        Object.keys(response.headers).forEach(header => {
+            // Skip headers that Express handles
+            if (!['transfer-encoding', 'connection'].includes(header.toLowerCase())) {
+                res.setHeader(header, response.headers[header]);
+            }
+        });
+
+        // Send response data
+        res.send(response.data);
+
+    } catch (error) {
+        console.error('Proxy error:', error.message);
+        if (error.response) {
+            console.error('Response error data:', error.response.data);
         }
-
-        console.log(`Forwarding ${req.method} request to: ${proxyReq.path}`);
-        console.log(`With headers: ${JSON.stringify(proxyReq.getHeaders(), null, 2)}`);
-    },
-    onProxyRes: (proxyRes, req, res) => {
-        console.log(`Received ${proxyRes.statusCode} response from target`);
-    },
-    onError: (err, req, res) => {
-        console.error('Proxy error:', err);
-        res.status(500).json({ error: 'Proxy Error', message: err.message });
+        res.status(500).send({ error: 'Proxy Error', message: error.message });
     }
 });
 
-// Parse JSON body for certain routes
-app.use('/auth/login', express.json());
-
-// Apply proxy to all routes
-app.use('/', apiProxy);
-
-// Start the server
 app.listen(PORT, () => {
-    console.log(`Proxy server running on port ${PORT}`);
+    console.log(`Simple proxy server running on port ${PORT}`);
 });
