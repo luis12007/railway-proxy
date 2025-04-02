@@ -8,20 +8,19 @@ const TARGET_URL = "http://3.137.223.39:3303";
 app.use(express.json()); // Parse JSON body
 app.use(cors()); // Enable CORS
 
-// Proxy all requests as POST to the target server
+// Proxy all requests while preserving the original HTTP method
 app.use(
     "/",
     createProxyMiddleware({
         target: TARGET_URL,
         changeOrigin: true,
         onProxyReq: (proxyReq, req, res) => {
-            proxyReq.method = "POST"; // Force all requests to be POST
+            proxyReq.method = req.method; // Ensure the correct HTTP method is sent
 
-            if (req.body) {
+            if (req.body && req.method !== "GET") {
                 const bodyData = JSON.stringify(req.body);
                 proxyReq.setHeader("Content-Type", "application/json");
                 proxyReq.write(bodyData);
-                proxyReq.end();
             }
         },
     })
